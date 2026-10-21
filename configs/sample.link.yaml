@@ -1,28 +1,37 @@
 version: "1.0"
 node:
-  id: "debian-homelab-01"
-  scope: "home-infra"
-
+    id: debian-homelab-01
+    scope: home-infra
+    public_key: 31af1e61cccfae381831c0749eab6516ec17de20f9dfa82dd3362d9e3db6d431
+metadata:
+    node_id: ""
+    federation: ""
+scope_context:
+    active_scope: ""
+    triggers: {}
 network:
-  overlay_interface: "edgenet0"
-  subnet: "fd00:ed6e:7100::1/64"
-  transport:
-    listen_port: 51820
-    peers:
-      - id: "chromebook-node-02"
-        endpoint: "192.168.1.50:51820"
-        allowed_ips: ["fd00:ed6e:7100::2/64"]
-
+    overlay_interface: edgenet0
+    overlay_subnet: ""
+    subnet: fd00:ed6e:7100::1/64
+    transport:
+        listen_port: 51820
+        peers:
+            - id: chromebook-node-02
+              endpoint: 192.168.1.50:51820
+              public_key: ""
+              allowed_ips:
+                - fd00:ed6e:7100::2/64
 scopes:
-  - name: "home-infra"
-    description: "Núcleo de infraestructura"
-    subnet: "fd00:infra::/64"
-  - name: "home-media"
-    description: "Zona de streaming"
-    subnet: "fd00:media::/64"
-
+    - name: home-infra
+      description: Núcleo de infraestructura
+      subnet: fd00:infra::/64
+      policies: []
+    - name: home-media
+      description: Zona de streaming
+      subnet: fd00:media::/64
+      policies: []
 intent_services:
-  - name: "media-server"
-    status: "running"
-    port: 8096
-    scope: "home-media"
+    - name: media-server
+      status: running
+      port: 8096
+      scope: home-media
