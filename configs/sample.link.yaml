@@ -1,0 +1,18 @@
+version: "1.0"
+metadata:
+  node_id: "node-carlos-home"
+  federation: "fed.personal"
+
+scope_context:
+  active_scope: "home"
+  triggers:
+    network_ssid: "Home_WiFi"
+
+network:
+  overlay_subnet: "fd00:ed6e:7100::/64" # Subred IPv6 hexadecimal válida
+  isolation_mode: "standard"
+
+intent_services:
+  - name: "media-server"
+    status: "running"
+    port: 8096
