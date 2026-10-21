@@ -32,6 +32,7 @@ type IntentService struct {
 type Peer struct {
 	ID         string   `yaml:"id"`
 	Endpoint   string   `yaml:"endpoint"`
+	PublicKey  string   `yaml:"public_key"` // <--- Llave pública declarada del peer
 	AllowedIPs []string `yaml:"allowed_ips"`
 }
 
@@ -42,6 +43,7 @@ type TransportConfig struct {
 
 type NetworkConfig struct {
 	OverlayInterface string          `yaml:"overlay_interface"`
+	OverlaySubnet    string          `yaml:"overlay_subnet"`
 	Subnet           string          `yaml:"subnet"`
 	Transport        TransportConfig `yaml:"transport"`
 }
@@ -49,13 +51,24 @@ type NetworkConfig struct {
 type Manifest struct {
 	Version string `yaml:"version"`
 	Node    struct {
-		ID    string `yaml:"id"`
-		Scope string `yaml:"scope"`
+		ID        string `yaml:"id"`
+		Scope     string `yaml:"scope"`
+		PublicKey string `yaml:"public_key"` // <--- Llave pública declarada del nodo local
 	} `yaml:"node"`
+	Metadata struct {
+		NodeID     string `yaml:"node_id"`
+		Federation string `yaml:"federation"`
+	} `yaml:"metadata"`
+	ScopeContext struct {
+		ActiveScope string            `yaml:"active_scope"`
+		Triggers    map[string]string `yaml:"triggers"`
+	} `yaml:"scope_context"`
 	Network  NetworkConfig   `yaml:"network"`
 	Scopes   []Scope         `yaml:"scopes"`
 	Services []IntentService `yaml:"intent_services"`
 }
+
+type IntentManifest = Manifest
 
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)

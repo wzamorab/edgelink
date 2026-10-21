@@ -29,7 +29,7 @@ func main() {
 		log.Printf("Error aplicando política de ámbito: %v", err)
 	}
 
-	// 3. Reconciliar la interfaz de red overlay (TUN) utilizando los valores declarados en el YAML
+	// 3. Reconciliar la interfaz de red overlay (TUN)
 	ov := overlay.NewOverlayManager(m.Network.OverlayInterface)
 	if err := ov.EnsureState(m.Network.Subnet); err != nil {
 		log.Printf("Error asegurando estado del overlay TUN: %v", err)
@@ -37,12 +37,13 @@ func main() {
 		fmt.Printf("[edgelink] Interfaz de red overlay [%s] reconciliada con la subred %s\n", m.Network.OverlayInterface, m.Network.Subnet)
 	}
 
-	// 4. Reconciliar el transporte UDP bidireccional y los Peers remotos declarados
+	// 4. Mapear Peers y sus llaves públicas declaradas en el YAML
 	var mappedPeers []overlay.PeerRoute
 	for _, p := range m.Network.Transport.Peers {
 		mappedPeers = append(mappedPeers, overlay.PeerRoute{
 			ID:         p.ID,
 			Endpoint:   p.Endpoint,
+			PubKeyStr:  p.PublicKey, // <--- Pasamos la llave pública declarada
 			AllowedIPs: p.AllowedIPs,
 		})
 	}
@@ -52,7 +53,7 @@ func main() {
 		log.Printf("Error iniciando transporte UDP declarativo: %v", err)
 	}
 
-	// 5. Orquestar servicios declarados usando Podman rootless en el espacio del usuario
+	// 5. Orquestar servicios declarados usando Podman rootless
 	podman := runtime.NewPodmanOrchestrator()
 	for _, svc := range m.Services {
 		if err := podman.EnsureServiceRunning(svc.Name, svc.Port, svc.Scope); err != nil {
