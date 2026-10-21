@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/wzamorab/edgelink/pkg/crypto"
+	"github.com/wzamorab/edgelink/pkg/discovery"
 	"github.com/wzamorab/edgelink/pkg/firewall"
 	"github.com/wzamorab/edgelink/pkg/manifest"
 	"github.com/wzamorab/edgelink/pkg/overlay"
@@ -24,7 +25,7 @@ func main() {
 		log.Fatalf("Error cargando manifiesto: %v", err)
 	}
 
-	// 1.1 BOOTSTRAP CRIPTOGRÁFICO: Si el nodo no tiene public_key en el YAML, la generamos y la auto-escribimos
+	// 1.1 BOOTSTRAP CRIPTOGRÁFICO: Generar y auto-escribir public_key si no existe
 	if m.Node.PublicKey == "" {
 		fmt.Println("[edgelink-crypto] No se encontró llave pública declarada. Generando nueva identidad criptográfica...")
 		identity, err := crypto.GenerateKeyPair()
@@ -36,12 +37,10 @@ func main() {
 		m.Node.PublicKey = pubKeyHex
 		fmt.Printf("[edgelink-crypto] ¡Llave generada con éxito! -> %s\n", pubKeyHex)
 
-		// Reescribir el archivo YAML en disco con la nueva llave para mantener la intención declarativa sincronizada
 		fileData, err := os.ReadFile(yamlPath)
 		if err == nil {
 			var rootNode yaml.Node
 			if err := yaml.Unmarshal(fileData, &rootNode); err == nil {
-				// Actualizamos de forma limpia guardando el archivo
 				updatedData, err := yaml.Marshal(m)
 				if err == nil {
 					_ = os.WriteFile(yamlPath, updatedData, 0644)
@@ -62,7 +61,7 @@ func main() {
 		log.Printf("Error aplicando política de ámbito: %v", err)
 	}
 
-	// 3. Reconciliar la interfaz de red overlay (TUN)
+	// 3. Reconciliar la interfaz de red overlay (TUN) utilizando la intención del YAML
 	ov := overlay.NewOverlayManager(m.Network.OverlayInterface)
 	if err := ov.EnsureState(m.Network.Subnet); err != nil {
 		log.Printf("Error asegurando estado del overlay TUN: %v", err)
@@ -70,7 +69,7 @@ func main() {
 		fmt.Printf("[edgelink] Interfaz de red overlay [%s] reconciliada con la subred %s\n", m.Network.OverlayInterface, m.Network.Subnet)
 	}
 
-	// 4. Mapear Peers y sus llaves públicas declaradas en el YAML
+	// 4. Mapear Peers y sus llaves públicas declaradas para el transporte E2EE
 	var mappedPeers []overlay.PeerRoute
 	for _, p := range m.Network.Transport.Peers {
 		mappedPeers = append(mappedPeers, overlay.PeerRoute{
@@ -86,13 +85,17 @@ func main() {
 		log.Printf("Error iniciando transporte UDP declarativo: %v", err)
 	}
 
-	// 5. Orquestar servicios declarados usando Podman rootless
+	// 5. Orquestar servicios declarados usando Podman rootless en el espacio del usuario
 	podman := runtime.NewPodmanOrchestrator()
 	for _, svc := range m.Services {
 		if err := podman.EnsureServiceRunning(svc.Name, svc.Port, svc.Scope); err != nil {
 			log.Printf("Error al asegurar servicio %s: %v", svc.Name, err)
 		}
 	}
+
+	// 6. Iniciar el motor de auto-descubrimiento en segundo plano (mDNS / Multicast)
+	disc := discovery.NewNodeDiscovery(m.Node.ID, m.Network.Transport.ListenPort)
+	disc.Start()
 
 	fmt.Println("[edgelink] Bucle de reconciliación completado exitosamente.")
 }
