@@ -2,96 +2,57 @@ package runtime
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"strings"
+	"os/user"
 )
 
-type PodmanManager struct{}
+type PodmanOrchestrator struct{}
 
-func NewPodmanManager() *PodmanManager {
-	return &PodmanManager{}
+func NewPodmanOrchestrator() *PodmanOrchestrator {
+	return &PodmanOrchestrator{}
 }
 
-type ServiceIntent struct {
-	Name   string
-	Status string
-	Port   int
-}
+func (p *PodmanOrchestrator) EnsureServiceRunning(name string, port int, scope string) error {
+	fmt.Printf("[edgelink-runtime] Verificando contenedor (Rootless): [%s] en puerto [%d] (Ámbito: %s)\n", name, port, scope)
 
-// Helper para construir comandos de podman ejecutados como el usuario real (rootless)
-func (p *PodmanManager) podmanCommand(args ...string) *exec.Cmd {
-	sudoUser := os.Getenv("SUDO_USER")
-	if sudoUser != "" && sudoUser != "root" {
-		// Si se ejecutó con sudo, ejecutamos podman como el usuario original con su XDG_RUNTIME_DIR
-		fullArgs := append([]string{"-u", sudoUser, "podman"}, args...)
-		cmd := exec.Command("sudo", fullArgs...)
-		cmd.Env = append(os.Environ(), fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%s", getUID(sudoUser)))
-		return cmd
-	}
-	return exec.Command("podman", args...)
-}
-
-func getUID(username string) string {
-	cmd := exec.Command("id", "-u", username)
-	out, err := cmd.Output()
+	// Obtenemos tu usuario real (wzamorab) para ejecutar Podman en su contexto rootless
+	targetUser := "wzamorab"
+	u, err := user.Lookup(targetUser)
 	if err != nil {
-		return "1000" // Fallback común
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func (p *PodmanManager) ReconcileService(svc ServiceIntent, overlaySubnet string) error {
-	isRunning, err := p.isContainerRunning(svc.Name)
-	if err != nil {
-		return fmt.Errorf("fallo al consultar estado de Podman para %s: %v", svc.Name, err)
+		return fmt.Errorf("no se pudo encontrar al usuario %s: %w", targetUser, err)
 	}
 
-	if svc.Status == "running" && !isRunning {
-		fmt.Printf("[edgelink-runtime] Contenedor [%s] no está ejecutándose. Iniciando en modo rootless...\n", svc.Name)
-		return p.startContainer(svc)
-	} else if svc.Status == "stopped" && isRunning {
-		fmt.Printf("[edgelink-runtime] Contenedor [%s] debe estar detenido. Deteniendo...\n", svc.Name)
-		return p.stopContainer(svc.Name)
+	// Comando base ejecutado a nombre de tu usuario real usando su UID y entorno
+	// Esto obliga a Podman a correr en modo rootless puro aunque el demonio principal tenga sudo.
+	runAsUser := func(args ...string) *exec.Cmd {
+		fullArgs := append([]string{"-u", targetUser, "env", fmt.Sprintf("XDG_RUNTIME_DIR=/run/user/%s", u.Uid), "podman"}, args...)
+		return exec.Command("sudo", fullArgs...)
 	}
 
-	return nil
-}
-
-func (p *PodmanManager) isContainerRunning(name string) (bool, error) {
-	cmd := p.podmanCommand("ps", "--filter", fmt.Sprintf("name=%s", name), "--format", "{{.Names}}")
-	output, err := cmd.Output()
-	if err != nil {
-		return false, err
+	// Comprobar si el contenedor ya está corriendo
+	checkCmd := runAsUser("inspect", "-f", "{{.State.Running}}", name)
+	output, err := checkCmd.Output()
+	if err == nil && string(output) == "true\n" {
+		fmt.Printf(" -> Contenedor rootless [%s] ya se encuentra activo.\n", name)
+		return nil
 	}
-	runningNames := strings.TrimSpace(string(output))
-	return runningNames == name, nil
-}
 
-func (p *PodmanManager) startContainer(svc ServiceIntent) error {
-	image := "docker.io/library/alpine:latest"
+	// Limpiar si existía detenido
+	_ = runAsUser("rm", "-f", name).Run()
 
-	cmd := p.podmanCommand("run", "-d",
-		"--name", svc.Name,
-		"-p", fmt.Sprintf("%d:80", svc.Port),
-		image,
-		"sh", "-c", fmt.Sprintf("echo 'Edgelink Service %s running on port %d' && sleep 1000000", svc.Name, svc.Port),
+	// Lanzar el contenedor en entorno rootless del usuario
+	deployCmd := runAsUser("run", "-d",
+		"--name", name,
+		"--publish", fmt.Sprintf("%d:%d", port, port),
+		"--label", fmt.Sprintf("edgelink.scope=%s", scope),
+		"docker.io/library/alpine:latest",
+		"sh", "-c", "echo 'Servicio Edgelink Rootless Puro Activo' && sleep infinity",
 	)
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("error al ejecutar podman run: %v", err)
+	if err := deployCmd.Run(); err != nil {
+		return fmt.Errorf("error al desplegar contenedor rootless como usuario %s: %w", targetUser, err)
 	}
 
-	fmt.Printf("[edgelink-runtime] Contenedor rootless [%s] iniciado y expuesto en el puerto %d\n", svc.Name, svc.Port)
-	return nil
-}
-
-func (p *PodmanManager) stopContainer(name string) error {
-	cmd := p.podmanCommand("stop", name)
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	cmdRm := p.podmanCommand("rm", name)
-	_ = cmdRm.Run()
+	fmt.Printf(" -> ¡Contenedor [%s] desplegado exitosamente en el espacio rootless de [%s]!\n", name, targetUser)
 	return nil
 }

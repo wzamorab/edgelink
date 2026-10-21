@@ -1,18 +1,28 @@
 version: "1.0"
-metadata:
-  node_id: "node-carlos-home"
-  federation: "fed.personal"
-
-scope_context:
-  active_scope: "home"
-  triggers:
-    network_ssid: "Home_WiFi"
+node:
+  id: "debian-homelab-01"
+  scope: "home-infra"
 
 network:
-  overlay_subnet: "fd00:ed6e:7100::/64" # Subred IPv6 hexadecimal válida
-  isolation_mode: "standard"
+  overlay_interface: "edgenet0"
+  subnet: "fd00:ed6e:7100::1/64"
+  transport:
+    listen_port: 51820
+    peers:
+      - id: "chromebook-node-02"
+        endpoint: "192.168.1.50:51820"
+        allowed_ips: ["fd00:ed6e:7100::2/64"]
+
+scopes:
+  - name: "home-infra"
+    description: "Núcleo de infraestructura"
+    subnet: "fd00:infra::/64"
+  - name: "home-media"
+    description: "Zona de streaming"
+    subnet: "fd00:media::/64"
 
 intent_services:
   - name: "media-server"
     status: "running"
     port: 8096
+    scope: "home-media"
