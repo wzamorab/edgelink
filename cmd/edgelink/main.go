@@ -3,21 +3,54 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
+	"github.com/wzamorab/edgelink/pkg/crypto"
 	"github.com/wzamorab/edgelink/pkg/firewall"
 	"github.com/wzamorab/edgelink/pkg/manifest"
 	"github.com/wzamorab/edgelink/pkg/overlay"
 	"github.com/wzamorab/edgelink/pkg/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
 	fmt.Println("[edgelink] Iniciando motor de borde y reconciliación...")
 
+	yamlPath := "configs/sample.link.yaml"
+
 	// 1. Cargar el manifiesto declarativo (Intención)
-	m, err := manifest.LoadManifest("configs/sample.link.yaml")
+	m, err := manifest.LoadManifest(yamlPath)
 	if err != nil {
 		log.Fatalf("Error cargando manifiesto: %v", err)
 	}
+
+	// 1.1 BOOTSTRAP CRIPTOGRÁFICO: Si el nodo no tiene public_key en el YAML, la generamos y la auto-escribimos
+	if m.Node.PublicKey == "" {
+		fmt.Println("[edgelink-crypto] No se encontró llave pública declarada. Generando nueva identidad criptográfica...")
+		identity, err := crypto.GenerateKeyPair()
+		if err != nil {
+			log.Fatalf("Error generando par de llaves: %v", err)
+		}
+		
+		pubKeyHex := crypto.KeyToString(identity.PublicKey)
+		m.Node.PublicKey = pubKeyHex
+		fmt.Printf("[edgelink-crypto] ¡Llave generada con éxito! -> %s\n", pubKeyHex)
+
+		// Reescribir el archivo YAML en disco con la nueva llave para mantener la intención declarativa sincronizada
+		fileData, err := os.ReadFile(yamlPath)
+		if err == nil {
+			var rootNode yaml.Node
+			if err := yaml.Unmarshal(fileData, &rootNode); err == nil {
+				// Actualizamos de forma limpia guardando el archivo
+				updatedData, err := yaml.Marshal(m)
+				if err == nil {
+					_ = os.WriteFile(yamlPath, updatedData, 0644)
+					fmt.Println("[edgelink-crypto] Manifiesto YAML actualizado automáticamente con la public_key del nodo.")
+				}
+			}
+		}
+	}
+
 	fmt.Printf("[edgelink] Manifiesto cargado. Nodo ID: %s | Ámbito principal: %s\n", m.Node.ID, m.Node.Scope)
 
 	// 2. Inicializar y aplicar políticas de Firewall basadas en la intención
@@ -43,7 +76,7 @@ func main() {
 		mappedPeers = append(mappedPeers, overlay.PeerRoute{
 			ID:         p.ID,
 			Endpoint:   p.Endpoint,
-			PubKeyStr:  p.PublicKey, // <--- Pasamos la llave pública declarada
+			PubKeyStr:  p.PublicKey,
 			AllowedIPs: p.AllowedIPs,
 		})
 	}
